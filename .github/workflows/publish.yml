@@ -33,7 +33,7 @@ jobs:
             archlinux:latest \
             bash -euxo pipefail -c '
               pacman -Sy --noconfirm archlinux-keyring
-              pacman -S --noconfirm --needed base-devel curl jq libarchive
+              pacman -S --noconfirm --needed base-devel curl jq libarchive webkit2gtk-4.1
               useradd -m builder
               chown -R builder:builder /work
               su builder -s /bin/bash -c "makepkg --noconfirm --clean"
