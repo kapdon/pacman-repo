@@ -20,7 +20,11 @@ prepare() {
 	cd "$srcdir"
 
 	local release_json tag deb_asset
-	release_json="$(curl -fsSL https://api.github.com/repos/refactoringhq/tolaria/releases)"
+	if [[ -f /work/release.json ]]; then
+		release_json="$(< /work/release.json)"
+	else
+		release_json="$(curl -fsSL https://api.github.com/repos/refactoringhq/tolaria/releases)"
+	fi
 	tag="$(jq -r '[.[] | select(.prerelease and (.draft | not))][0].tag_name' <<<"$release_json")"
 	deb_asset="$(jq -r --arg tag "$tag" '.[] | select(.tag_name == $tag) | .assets[].name' <<<"$release_json" | grep '_amd64\.deb$' | head -n1)"
 
