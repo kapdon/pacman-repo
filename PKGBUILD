@@ -1,6 +1,6 @@
 # Maintainer: Local package maintained by the user
 pkgname=tolaria-alpha-bin
-pkgver=9999
+pkgver=2026.8.24.alpha.1
 pkgrel=1
 pkgdesc="Latest Tolaria GitHub alpha release"
 arch=('x86_64')
