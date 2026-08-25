@@ -46,10 +46,9 @@ jobs:
               useradd -m builder
               chmod -R a+rwX /work
               test -s /work/release.json
-              release_json=$(cat /work/release.json)
               cd /work/packages/tolaria-alpha-bin
-              tag=$(jq -r "[.[] | select(.prerelease and (.draft | not))][0].tag_name" <<<"$release_json")
-              deb_asset=$(jq -r --arg tag "$tag" ".[] | select(.tag_name == \$tag) | .assets[].name" <<<"$release_json" | grep "_amd64\\.deb$" | head -n1)
+              tag=$(jq -r "[.[] | select(.prerelease and (.draft | not))][0].tag_name" /work/release.json)
+              deb_asset=$(jq -r --arg tag "$tag" ".[] | select(.tag_name == \$tag) | .assets[].name" /work/release.json | grep "_amd64\\.deb$" | head -n1)
               version=$(sed -nE "s/^alpha-v([0-9]+\\.[0-9]+\\.[0-9]+)-alpha\\.0*([0-9]+)$/\\1.alpha.\\2/p" <<<"$tag")
               test -n "$version"
               sed -i "s/^pkgver=.*/pkgver=$version/" PKGBUILD
