@@ -45,7 +45,9 @@ jobs:
               command -v makepkg jq bsdtar
               useradd -m builder
               chmod -R a+rwX /work
-              release_json=$(cat release.json)
+              test -s /work/release.json
+              release_json=$(cat /work/release.json)
+              cd /work/packages/tolaria-alpha-bin
               tag=$(jq -r "[.[] | select(.prerelease and (.draft | not))][0].tag_name" <<<"$release_json")
               deb_asset=$(jq -r --arg tag "$tag" ".[] | select(.tag_name == \$tag) | .assets[].name" <<<"$release_json" | grep "_amd64\\.deb$" | head -n1)
               version=$(sed -nE "s/^alpha-v([0-9]+\\.[0-9]+\\.[0-9]+)-alpha\\.0*([0-9]+)$/\\1.alpha.\\2/p" <<<"$tag")
@@ -54,11 +56,11 @@ jobs:
               makepkg --printsrcinfo > .SRCINFO
               chmod a+rw PKGBUILD .SRCINFO
               su builder -s /bin/bash -c "makepkg --nodeps --noconfirm --clean"
-              cp ./*.pkg.tar.zst site/x86_64/
-              repo-add site/x86_64/pacman-repo.db.tar.gz site/x86_64/*.pkg.tar.zst
-              rm -f site/x86_64/pacman-repo.db site/x86_64/pacman-repo.files
-              ln -s pacman-repo.db.tar.gz site/x86_64/pacman-repo.db
-              ln -s pacman-repo.files.tar.gz site/x86_64/pacman-repo.files
+              cp ./*.pkg.tar.zst /work/site/x86_64/
+              repo-add /work/site/x86_64/pacman-repo.db.tar.gz /work/site/x86_64/*.pkg.tar.zst
+              rm -f /work/site/x86_64/pacman-repo.db /work/site/x86_64/pacman-repo.files
+              ln -s pacman-repo.db.tar.gz /work/site/x86_64/pacman-repo.db
+              ln -s pacman-repo.files.tar.gz /work/site/x86_64/pacman-repo.files
             '
 
       - name: Configure Pages
