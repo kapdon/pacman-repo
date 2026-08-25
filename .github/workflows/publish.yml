@@ -39,7 +39,7 @@ jobs:
               release_json=$(curl -fsSL https://api.github.com/repos/refactoringhq/tolaria/releases)
               tag=$(jq -r '[.[] | select(.prerelease and (.draft | not))][0].tag_name' <<<"$release_json")
               deb_asset=$(jq -r --arg tag "$tag" '.[] | select(.tag_name == $tag) | .assets[].name' <<<"$release_json" | grep '_amd64\\.deb$' | head -n1)
-              version=$(sed -nE 's/^Tolaria_([0-9]+\\.[0-9]+\\.[0-9]+)-alpha\\.([0-9]+)_amd64\\.deb$/\\1.alpha.\\2/p' <<<"$deb_asset")
+              version=$(sed -nE "s/^Tolaria_([0-9]+\\.[0-9]+\\.[0-9]+)-alpha\\.([0-9]+)_amd64\\.deb$/\\1.alpha.\\2/p" <<<"$deb_asset")
               test -n "$version"
               sed -i "s/^pkgver=.*/pkgver=$version/" PKGBUILD
               makepkg --printsrcinfo > .SRCINFO
