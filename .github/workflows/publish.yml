@@ -36,6 +36,14 @@ jobs:
               pacman -S --noconfirm --needed base-devel curl jq libarchive webkit2gtk-4.1
               useradd -m builder
               chown -R builder:builder /work
+              release_json=$(curl -fsSL https://api.github.com/repos/refactoringhq/tolaria/releases)
+              tag=$(jq -r '[.[] | select(.prerelease and (.draft | not))][0].tag_name' <<<"$release_json")
+              deb_asset=$(jq -r --arg tag "$tag" '.[] | select(.tag_name == $tag) | .assets[].name' <<<"$release_json" | grep '_amd64\\.deb$' | head -n1)
+              version=$(sed -nE 's/^Tolaria_([0-9]+\\.[0-9]+\\.[0-9]+)-alpha\\.([0-9]+)_amd64\\.deb$/\\1.alpha.\\2/p' <<<"$deb_asset")
+              test -n "$version"
+              sed -i "s/^pkgver=.*/pkgver=$version/" PKGBUILD
+              makepkg --printsrcinfo > .SRCINFO
+              chown builder:builder PKGBUILD .SRCINFO
               su builder -s /bin/bash -c "makepkg --noconfirm --clean"
               cp ./*.pkg.tar.zst site/x86_64/
               repo-add site/x86_64/pacman-repo.db.tar.gz site/x86_64/*.pkg.tar.zst
