@@ -24,20 +24,22 @@ jobs:
         run: |
           docker pull archlinux:latest
 
+      - name: Resolve latest Tolaria alpha
+        run: gh api repos/refactoringhq/tolaria/releases > release.json
+
       - name: Build package and repository
         run: |
           mkdir -p site/x86_64
           docker run --rm \
             -v "$PWD:/work" \
             -w /work \
-            -e GITHUB_TOKEN="${{ github.token }}" \
             archlinux:latest \
             bash -euxo pipefail -c '
               pacman -Sy --noconfirm archlinux-keyring || true
               pacman -S --noconfirm --needed base-devel curl jq libarchive webkit2gtk-4.1 || true
               useradd -m builder
               chmod -R a+rwX /work
-              release_json=$(curl -fsSL -H "Authorization: Bearer ${GITHUB_TOKEN}" https://api.github.com/repos/refactoringhq/tolaria/releases)
+              release_json=$(cat release.json)
               tag=$(jq -r "[.[] | select(.prerelease and (.draft | not))][0].tag_name" <<<"$release_json")
               deb_asset=$(jq -r --arg tag "$tag" ".[] | select(.tag_name == \$tag) | .assets[].name" <<<"$release_json" | grep "_amd64\\.deb$" | head -n1)
               version=$(sed -nE "s/^alpha-v([0-9]+\\.[0-9]+\\.[0-9]+)-alpha\\.0*([0-9]+)$/\\1.alpha.\\2/p" <<<"$tag")
