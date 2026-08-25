@@ -1,0 +1,43 @@
+# Maintainer: Local package maintained by the user
+pkgname=tolaria-alpha-bin
+pkgver=9999
+pkgrel=1
+pkgdesc="Latest Tolaria GitHub alpha release"
+arch=('x86_64')
+url="https://github.com/refactoringhq/tolaria"
+license=('AGPL-3.0-or-later')
+depends=('webkit2gtk-4.1')
+makedepends=('curl' 'jq' 'libarchive')
+provides=('tolaria')
+conflicts=('tolaria' 'tolaria-bin')
+options=('!emptydirs' '!strip')
+
+# The release asset is resolved dynamically in prepare().
+source=()
+sha256sums=()
+
+prepare() {
+	cd "$srcdir"
+
+	local release_json tag deb_asset
+	release_json="$(curl -fsSL https://api.github.com/repos/refactoringhq/tolaria/releases)"
+	tag="$(jq -r '[.[] | select(.prerelease and (.draft | not))][0].tag_name' <<<"$release_json")"
+	deb_asset="$(jq -r --arg tag "$tag" '.[] | select(.tag_name == $tag) | .assets[].name' <<<"$release_json" | grep '_amd64\.deb$' | head -n1)"
+
+	test -n "$tag" -a "$tag" != "null"
+	test -n "$deb_asset"
+
+	curl -fL -o tolaria.deb \
+		"https://github.com/refactoringhq/tolaria/releases/download/$tag/$deb_asset"
+
+	mkdir -p extracted
+	bsdtar -xf tolaria.deb -C extracted
+	bsdtar -xf extracted/data.tar.gz -C extracted
+}
+
+package() {
+	cp -a "$srcdir/extracted/usr" "$pkgdir/"
+
+	# Remove Debian-specific metadata, matching the official tolaria-bin package.
+	rm -rf "$pkgdir/usr/share/doc" "$pkgdir/usr/share/lintian"
+}

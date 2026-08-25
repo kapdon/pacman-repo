@@ -1,0 +1,65 @@
+name: Publish pacman repository
+
+on:
+  schedule:
+    - cron: '17 4 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pacman-pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Arch build environment
+        run: |
+          docker pull archlinux:latest
+
+      - name: Build package and repository
+        run: |
+          mkdir -p site/x86_64
+          docker run --rm \
+            -v "$PWD:/work" \
+            -w /work \
+            archlinux:latest \
+            bash -euxo pipefail -c '
+              pacman -Sy --noconfirm archlinux-keyring
+              pacman -S --noconfirm --needed base-devel curl jq libarchive
+              useradd -m builder
+              chown -R builder:builder /work
+              su builder -s /bin/bash -c "makepkg --noconfirm --clean"
+              cp ./*.pkg.tar.zst site/x86_64/
+              repo-add site/x86_64/pacman-repo.db.tar.gz site/x86_64/*.pkg.tar.zst
+              rm -f site/x86_64/pacman-repo.db site/x86_64/pacman-repo.files
+              ln -s pacman-repo.db.tar.gz site/x86_64/pacman-repo.db
+              ln -s pacman-repo.files.tar.gz site/x86_64/pacman-repo.files
+            '
+
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+    permissions:
+      pages: write
+      id-token: write
+    steps:
+      - name: Deploy to GitHub Pages
+        uses: actions/deploy-pages@v4
