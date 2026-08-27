@@ -1,14 +1,17 @@
-name: Publish pacman repository
+name: Publish Tolaria package
 
 on:
-  schedule:
-    - cron: '17 4 * * *'
   workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Tolaria release tag; leave blank to use the latest alpha
+        required: false
+        type: string
+  repository_dispatch:
+    types: [tolaria-release]
 
 permissions:
   contents: read
-  pages: write
-  id-token: write
 
 concurrency:
   group: pacman-pages
@@ -17,22 +20,41 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
+    env:
+      REQUESTED_RELEASE_TAG: ${{ inputs.release_tag || github.event.client_payload.tag }}
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install Arch build environment
-        run: |
-          docker pull archlinux:latest
-
-      - name: Resolve latest Tolaria alpha
+      - name: Resolve Tolaria alpha
+        id: release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh api repos/refactoringhq/tolaria/releases > release.json
+        run: |
+          release_tag=$REQUESTED_RELEASE_TAG
+          if [[ -z "$release_tag" ]]; then
+            release_tag=$(gh api 'repos/refactoringhq/tolaria/releases?per_page=100' \
+              --jq '[.[] | select(.prerelease and (.draft | not))][0].tag_name')
+          fi
+          if [[ ! "$release_tag" =~ ^alpha-v[0-9]+\.[0-9]+\.[0-9]+-alpha\.0*[0-9]+$ ]]; then
+            echo "Unexpected Tolaria release tag: $release_tag" >&2
+            exit 1
+          fi
+
+          gh api "repos/refactoringhq/tolaria/releases/tags/$release_tag" \
+            | jq --slurp '.' > release.json
+          test "$(jq -r '.[0].tag_name' release.json)" = "$release_tag"
+          echo "release_tag=$release_tag" >> "$GITHUB_OUTPUT"
+
+      - name: Install Arch build environment
+        run: docker pull archlinux:latest
 
       - name: Build package and repository
+        env:
+          RELEASE_TAG: ${{ steps.release.outputs.release_tag }}
         run: |
-          mkdir -p site/x86_64
+          mkdir -p site/x86_64 site/release-tags
           docker run --rm \
+            -e RELEASE_TAG \
             -v "$PWD:/work" \
             -w /work \
             archlinux:latest \
@@ -59,6 +81,7 @@ jobs:
               rm -f /work/site/x86_64/pacman-repo.db /work/site/x86_64/pacman-repo.files
               ln -s pacman-repo.db.tar.gz /work/site/x86_64/pacman-repo.db
               ln -s pacman-repo.files.tar.gz /work/site/x86_64/pacman-repo.files
+              printf "%s\n" "$RELEASE_TAG" > /work/site/release-tags/tolaria-alpha-bin.txt
             '
 
       - name: Configure Pages
