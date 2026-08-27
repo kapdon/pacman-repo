@@ -1,15 +1,15 @@
 # Maintainer: Local package maintained by the user
-pkgname=tolaria-alpha-bin
-pkgver=2026.8.27.alpha.5
+pkgname=tolaria-bin
+pkgver=2026.8.19
 pkgrel=1
-pkgdesc="Latest Tolaria GitHub alpha release"
+pkgdesc="Latest stable Tolaria GitHub release"
 arch=('x86_64')
 url="https://github.com/refactoringhq/tolaria"
 license=('AGPL-3.0-or-later')
 depends=('webkit2gtk-4.1')
 makedepends=('curl' 'jq' 'libarchive')
 provides=('tolaria')
-conflicts=('tolaria' 'tolaria-bin')
+conflicts=('tolaria' 'tolaria-alpha-bin')
 options=('!emptydirs' '!strip')
 
 # The release asset is resolved dynamically in prepare().
@@ -19,15 +19,18 @@ sha256sums=()
 prepare() {
 	cd "$srcdir"
 
-	local release_file tag version asset_row deb_asset asset_digest
+	local release_file tag release_date year month day version asset_row deb_asset asset_digest
 	if [[ -f /work/release.json ]]; then
 		release_file=/work/release.json
 	else
 		release_file="$srcdir/release.json"
 		curl -fsSL https://api.github.com/repos/refactoringhq/tolaria/releases -o "$release_file"
 	fi
-	tag="$(jq -r '[.[] | select(.prerelease and (.draft | not))][0].tag_name' "$release_file")"
-	version="$(sed -nE 's/^alpha-v([0-9]+\.[0-9]+\.[0-9]+)-alpha\.0*([0-9]+)$/\1.alpha.\2/p' <<< "$tag")"
+	tag="$(jq -r '[.[] | select((.prerelease | not) and (.draft | not))][0].tag_name' "$release_file")"
+	[[ "$tag" =~ ^v[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]]
+	release_date=${tag#v}
+	IFS=- read -r year month day <<< "$release_date"
+	version="$((10#$year)).$((10#$month)).$((10#$day))"
 	test "$version" = "$pkgver"
 	asset_row="$(jq -r --arg tag "$tag" \
 		'.[] | select(.tag_name == $tag) | .assets[] | select(.name | endswith("_amd64.deb")) | [.name, .digest] | @tsv' \

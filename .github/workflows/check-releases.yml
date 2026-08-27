@@ -24,11 +24,12 @@ jobs:
           set -euo pipefail
 
           check_release() {
-            local name=$1
-            local upstream=$2
-            local channel=$3
-            local marker_url=$4
-            local workflow=$5
+            local package=$1
+            local name=$2
+            local upstream=$3
+            local channel=$4
+            local marker_url=$5
+            local workflow=$6
             local selector tag marker_file status published_tag in_flight
 
             case "$channel" in
@@ -103,14 +104,32 @@ jobs:
             gh workflow run "$workflow" \
               --repo "$GITHUB_REPOSITORY" \
               --ref "$GITHUB_REF_NAME" \
+              -f "package=$package" \
               -f "release_tag=$tag"
             echo "Dispatched $workflow for $name at $tag"
           }
 
-          # Add future trackers here; each package keeps its own marker and workflow.
+          # Each tracked package is one record with its own release channel and marker.
           check_release \
+            "tolaria-alpha-bin" \
             "Tolaria alpha" \
             "refactoringhq/tolaria" \
             "prerelease" \
             "https://kapdon.github.io/pacman-repo/release-tags/tolaria-alpha-bin.txt" \
+            "publish.yml"
+
+          check_release \
+            "tolaria-bin" \
+            "Tolaria stable" \
+            "refactoringhq/tolaria" \
+            "stable" \
+            "https://kapdon.github.io/pacman-repo/release-tags/tolaria-bin.txt" \
+            "publish.yml"
+
+          check_release \
+            "easycli-bin" \
+            "EasyCLI" \
+            "router-for-me/EasyCLIProxyAPI" \
+            "stable" \
+            "https://kapdon.github.io/pacman-repo/release-tags/easycli-bin.txt" \
             "publish.yml"

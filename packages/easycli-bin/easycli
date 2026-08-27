@@ -1,0 +1,22 @@
+#!/usr/bin/bash
+set -euo pipefail
+
+seed_dir=/usr/lib/easycli-proxy-api
+packaged_version=$(< /usr/share/easycli-proxy-api/version)
+data_home=${XDG_DATA_HOME:-"${HOME:?HOME is not set}/.local/share"}
+app_dir=$data_home/easycli-proxy-api
+seed_marker=$app_dir/.pacman-seed-version
+
+installed_seed=
+if [[ -f "$seed_marker" ]]; then
+	installed_seed=$(< "$seed_marker")
+fi
+
+if [[ "$installed_seed" != "$packaged_version" ]]; then
+	install -d -m 700 "$app_dir"
+	cp -R --preserve=mode,timestamps --remove-destination "$seed_dir/." "$app_dir/"
+	printf '%s\n' "$packaged_version" > "$seed_marker.tmp"
+	mv -f "$seed_marker.tmp" "$seed_marker"
+fi
+
+exec "$app_dir/EasyCLIProxyAPI" "$@"

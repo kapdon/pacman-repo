@@ -1,0 +1,61 @@
+# Maintainer: Local package maintained by the user
+pkgname=easycli-bin
+pkgver=0.2.64
+pkgrel=1
+pkgdesc="EasyCLI desktop console for CLIProxyAPI and supported AI agents"
+arch=('x86_64')
+url="https://github.com/router-for-me/EasyCLIProxyAPI"
+license=('custom')
+depends=('bash' 'glibc' 'openssl' 'gtk3' 'glib2' 'gdk-pixbuf2' 'cairo' 'webkit2gtk-4.1' 'libsoup3')
+makedepends=('curl' 'jq' 'libarchive')
+provides=('easycli')
+conflicts=('easycli' 'easycli-git')
+replaces=('easycli-git')
+options=('!strip')
+
+source=('easycli' 'easycli.desktop')
+sha256sums=('c0d871df66e44cb1431a5bf3b0ffe89df06b726a5c368f6c70dda2cb0fe4e5f2'
+            '7143f2028996fcfd57983cb416f17bf25e5e0a2ecb50d38e2148ba736f3cf38c')
+
+prepare() {
+	cd "$srcdir"
+
+	local release_file tag asset_name asset_row asset_digest archive_dir
+	if [[ -f /work/release.json ]]; then
+		release_file=/work/release.json
+	else
+		release_file="$srcdir/release.json"
+		curl -fsSL https://api.github.com/repos/router-for-me/EasyCLIProxyAPI/releases -o "$release_file"
+	fi
+	tag="$(jq -r '[.[] | select((.prerelease | not) and (.draft | not))][0].tag_name' "$release_file")"
+	test "$tag" = "v$pkgver"
+
+	asset_name="EasyCLIProxyAPI-v${pkgver}-Linux-amd64.tar.gz"
+	asset_row="$(jq -r --arg tag "$tag" --arg asset "$asset_name" \
+		'.[] | select(.tag_name == $tag) | .assets[] | select(.name == $asset) | [.name, .digest] | @tsv' \
+		"$release_file")"
+	IFS=$'\t' read -r asset_name asset_digest <<< "$asset_row"
+	test -n "$asset_name"
+	[[ "$asset_digest" =~ ^sha256:[0-9a-fA-F]{64}$ ]]
+
+	curl -fL -o easycli.tar.gz \
+		"https://github.com/router-for-me/EasyCLIProxyAPI/releases/download/$tag/$asset_name"
+	printf '%s  %s\n' "${asset_digest#sha256:}" easycli.tar.gz | sha256sum -c -
+
+	archive_dir=${asset_name%.tar.gz}
+	bsdtar -xf easycli.tar.gz
+	test -x "$archive_dir/EasyCLIProxyAPI"
+	test -f "$archive_dir/portable-app.json"
+}
+
+package() {
+	local archive_dir="EasyCLIProxyAPI-v${pkgver}-Linux-amd64"
+
+	install -d "$pkgdir/usr/lib/easycli-proxy-api"
+	cp -a "$srcdir/$archive_dir/." "$pkgdir/usr/lib/easycli-proxy-api/"
+	install -Dm755 "$srcdir/easycli" "$pkgdir/usr/bin/easycli"
+	install -Dm644 "$srcdir/easycli.desktop" \
+		"$pkgdir/usr/share/applications/easycli.desktop"
+	install -Dm644 /dev/null "$pkgdir/usr/share/easycli-proxy-api/version"
+	printf '%s\n' "$pkgver" > "$pkgdir/usr/share/easycli-proxy-api/version"
+}

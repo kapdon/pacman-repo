@@ -1,6 +1,6 @@
-pkgbase = tolaria-alpha-bin
-	pkgdesc = Latest Tolaria GitHub alpha release
-	pkgver = 2026.8.27.alpha.5
+pkgbase = tolaria-bin
+	pkgdesc = Latest stable Tolaria GitHub release
+	pkgver = 2026.8.19
 	pkgrel = 1
 	url = https://github.com/refactoringhq/tolaria
 	arch = x86_64
@@ -11,8 +11,8 @@ pkgbase = tolaria-alpha-bin
 	depends = webkit2gtk-4.1
 	provides = tolaria
 	conflicts = tolaria
-	conflicts = tolaria-bin
+	conflicts = tolaria-alpha-bin
 	options = !emptydirs
 	options = !strip
 
-pkgname = tolaria-alpha-bin
+pkgname = tolaria-bin

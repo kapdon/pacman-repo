@@ -1,14 +1,18 @@
-name: Publish Tolaria package
+name: Publish tracked package
 
 on:
   workflow_dispatch:
     inputs:
+      package:
+        description: Package record to publish
+        required: true
+        type: string
       release_tag:
-        description: Tolaria release tag; leave blank to use the latest alpha
+        description: Exact upstream release tag; leave blank to resolve the record's latest release
         required: false
         type: string
   repository_dispatch:
-    types: [tolaria-release]
+    types: [package-release]
 
 permissions:
   contents: read
@@ -21,39 +25,172 @@ jobs:
   build:
     runs-on: ubuntu-latest
     env:
+      REQUESTED_PACKAGE: ${{ inputs.package || github.event.client_payload.package }}
       REQUESTED_RELEASE_TAG: ${{ inputs.release_tag || github.event.client_payload.tag }}
     steps:
       - uses: actions/checkout@v4
 
-      - name: Resolve Tolaria alpha
+      - name: Resolve tracked release
         id: release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          set -euo pipefail
+
+          package_name=$REQUESTED_PACKAGE
           release_tag=$REQUESTED_RELEASE_TAG
+          case "$package_name" in
+            tolaria-alpha-bin)
+              upstream=refactoringhq/tolaria
+              selector='[.[] | select(.prerelease and (.draft | not))][0].tag_name'
+              expected_prerelease=true
+              ;;
+            tolaria-bin)
+              upstream=refactoringhq/tolaria
+              selector='[.[] | select((.prerelease | not) and (.draft | not))][0].tag_name'
+              expected_prerelease=false
+              ;;
+            easycli-bin)
+              upstream=router-for-me/EasyCLIProxyAPI
+              selector='[.[] | select((.prerelease | not) and (.draft | not))][0].tag_name'
+              expected_prerelease=false
+              ;;
+            *)
+              echo "Unsupported package record: $package_name" >&2
+              exit 1
+              ;;
+          esac
+
           if [[ -z "$release_tag" ]]; then
-            release_tag=$(gh api 'repos/refactoringhq/tolaria/releases?per_page=100' \
-              --jq '[.[] | select(.prerelease and (.draft | not))][0].tag_name')
+            release_tag=$(gh api "repos/$upstream/releases?per_page=100" --jq "$selector")
           fi
-          if [[ ! "$release_tag" =~ ^alpha-v[0-9]+\.[0-9]+\.[0-9]+-alpha\.0*[0-9]+$ ]]; then
-            echo "Unexpected Tolaria release tag: $release_tag" >&2
+
+          case "$package_name" in
+            tolaria-alpha-bin)
+              [[ "$release_tag" =~ ^alpha-v[0-9]+\.[0-9]+\.[0-9]+-alpha\.0*[0-9]+$ ]]
+              package_version=$(sed -nE 's/^alpha-v([0-9]+\.[0-9]+\.[0-9]+)-alpha\.0*([0-9]+)$/\1.alpha.\2/p' <<< "$release_tag")
+              ;;
+            tolaria-bin)
+              [[ "$release_tag" =~ ^v[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]]
+              release_date=${release_tag#v}
+              IFS=- read -r year month day <<< "$release_date"
+              package_version="$((10#$year)).$((10#$month)).$((10#$day))"
+              ;;
+            easycli-bin)
+              [[ "$release_tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
+              package_version=${release_tag#v}
+              ;;
+          esac
+          test -n "$package_version"
+
+          gh api "repos/$upstream/releases/tags/$release_tag" | jq --slurp '.' > release.json
+          test "$(jq -r '.[0].tag_name' release.json)" = "$release_tag"
+          test "$(jq -r '.[0].draft' release.json)" = false
+          test "$(jq -r '.[0].prerelease' release.json)" = "$expected_prerelease"
+
+          case "$package_name" in
+            tolaria-alpha-bin|tolaria-bin)
+              asset_count=$(jq '[.[0].assets[] | select(.name | endswith("_amd64.deb"))] | length' release.json)
+              ;;
+            easycli-bin)
+              expected_asset="EasyCLIProxyAPI-v${package_version}-Linux-amd64.tar.gz"
+              asset_count=$(jq --arg asset "$expected_asset" '[.[0].assets[] | select(.name == $asset)] | length' release.json)
+              ;;
+          esac
+          test "$asset_count" -eq 1
+
+          asset_digest=$(case "$package_name" in
+            tolaria-alpha-bin|tolaria-bin)
+              jq -r '.[0].assets[] | select(.name | endswith("_amd64.deb")) | .digest' release.json
+              ;;
+            easycli-bin)
+              jq -r --arg asset "$expected_asset" '.[0].assets[] | select(.name == $asset) | .digest' release.json
+              ;;
+          esac)
+          [[ "$asset_digest" =~ ^sha256:[0-9a-fA-F]{64}$ ]]
+
+          echo "package_name=$package_name" >> "$GITHUB_OUTPUT"
+          echo "package_version=$package_version" >> "$GITHUB_OUTPUT"
+          echo "release_tag=$release_tag" >> "$GITHUB_OUTPUT"
+
+      - name: Hydrate current repository
+        env:
+          PAGES_BASE_URL: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}
+        run: |
+          set -euo pipefail
+          mkdir -p site/x86_64 site/release-tags
+
+          download_optional() {
+            local relative_path=$1
+            local destination=$2
+            local status
+            status=$(curl --silent --show-error --location \
+              --retry 2 \
+              --retry-all-errors \
+              --header 'Cache-Control: no-cache' \
+              --output "$destination" \
+              --write-out '%{http_code}' \
+              "$PAGES_BASE_URL/$relative_path?run=$GITHUB_RUN_ID")
+            case "$status" in
+              200)
+                return 0
+                ;;
+              404)
+                rm -f "$destination"
+                return 1
+                ;;
+              *)
+                echo "$relative_path returned HTTP $status" >&2
+                return 2
+                ;;
+            esac
+          }
+
+          db_present=false
+          files_present=false
+          download_optional x86_64/pacman-repo.db.tar.gz site/x86_64/pacman-repo.db.tar.gz && db_present=true
+          download_optional x86_64/pacman-repo.files.tar.gz site/x86_64/pacman-repo.files.tar.gz && files_present=true
+          if [[ "$db_present" != "$files_present" ]]; then
+            echo "Published repository database is incomplete" >&2
             exit 1
           fi
 
-          gh api "repos/refactoringhq/tolaria/releases/tags/$release_tag" \
-            | jq --slurp '.' > release.json
-          test "$(jq -r '.[0].tag_name' release.json)" = "$release_tag"
-          echo "release_tag=$release_tag" >> "$GITHUB_OUTPUT"
+          if [[ "$db_present" == true ]]; then
+            while IFS= read -r filename; do
+              if [[ ! "$filename" =~ ^[A-Za-z0-9@._+:-]+\.pkg\.tar\.(zst|xz|gz)$ ]]; then
+                echo "Unexpected package filename in published database: $filename" >&2
+                exit 1
+              fi
+              curl --fail --silent --show-error --location \
+                --retry 2 \
+                --retry-all-errors \
+                --output "site/x86_64/$filename" \
+                "$PAGES_BASE_URL/x86_64/$filename?run=$GITHUB_RUN_ID"
+            done < <(tar -xOf site/x86_64/pacman-repo.db.tar.gz --wildcards '*/desc' | awk '$0 == "%FILENAME%" { getline; print }')
+          fi
+
+          for marker in tolaria-alpha-bin tolaria-bin easycli-bin; do
+            download_optional \
+              "release-tags/$marker.txt" \
+              "site/release-tags/$marker.txt" || {
+                status=$?
+                test "$status" -eq 1 || exit "$status"
+              }
+          done
 
       - name: Install Arch build environment
         run: docker pull archlinux:latest
 
       - name: Build package and repository
         env:
+          PACKAGE_NAME: ${{ steps.release.outputs.package_name }}
+          PACKAGE_VERSION: ${{ steps.release.outputs.package_version }}
           RELEASE_TAG: ${{ steps.release.outputs.release_tag }}
         run: |
-          mkdir -p site/x86_64 site/release-tags
+          set -euo pipefail
           docker run --rm \
+            -e PACKAGE_NAME \
+            -e PACKAGE_VERSION \
             -e RELEASE_TAG \
             -v "$PWD:/work" \
             -w /work \
@@ -64,24 +201,38 @@ jobs:
                 pacman -S --noconfirm --needed base-devel curl jq libarchive && break
                 test "$attempt" -lt 3 && sleep 15
               done
-              command -v makepkg jq bsdtar
+              command -v makepkg jq bsdtar repo-add repo-remove
               useradd -m builder
               chmod -R a+rwX /work
               test -s /work/release.json
-              cd /work/packages/tolaria-alpha-bin
-              tag=$(jq -r "[.[] | select(.prerelease and (.draft | not))][0].tag_name" /work/release.json)
-              deb_asset=$(jq -r --arg tag "$tag" ".[] | select(.tag_name == \$tag) | .assets[].name" /work/release.json | grep "_amd64\\.deb$" | head -n1)
-              version=$(sed -nE "s/^alpha-v([0-9]+\\.[0-9]+\\.[0-9]+)-alpha\\.0*([0-9]+)$/\\1.alpha.\\2/p" <<<"$tag")
-              test -n "$version"
-              sed -i "s/^pkgver=.*/pkgver=$version/" PKGBUILD
+
+              cd "/work/packages/$PACKAGE_NAME"
+              sed -i "s/^pkgver=.*/pkgver=$PACKAGE_VERSION/" PKGBUILD
               chmod a+rw PKGBUILD .SRCINFO
-              su builder -s /bin/bash -c "makepkg --printsrcinfo > .SRCINFO && makepkg --nodeps --noconfirm --clean"
-              cp ./*.pkg.tar.zst /work/site/x86_64/
-              repo-add /work/site/x86_64/pacman-repo.db.tar.gz /work/site/x86_64/*.pkg.tar.zst
-              rm -f /work/site/x86_64/pacman-repo.db /work/site/x86_64/pacman-repo.files
-              ln -s pacman-repo.db.tar.gz /work/site/x86_64/pacman-repo.db
-              ln -s pacman-repo.files.tar.gz /work/site/x86_64/pacman-repo.files
-              printf "%s\n" "$RELEASE_TAG" > /work/site/release-tags/tolaria-alpha-bin.txt
+              su builder -s /bin/bash -c "makepkg --printsrcinfo > .SRCINFO"
+              package_file=$(su builder -s /bin/bash -c "makepkg --packagelist")
+              su builder -s /bin/bash -c "makepkg --nodeps --noconfirm --clean"
+              test -f "$package_file"
+
+              database=/work/site/x86_64/pacman-repo.db.tar.gz
+              if test -s "$database"; then
+                shopt -s nullglob
+                old_files=(/work/site/x86_64/"$PACKAGE_NAME"-*.pkg.tar.{zst,xz,gz})
+                if (( ${#old_files[@]} > 0 )); then
+                  repo-remove "$database" "$PACKAGE_NAME"
+                  for old_path in "${old_files[@]}"; do
+                    old_file=${old_path##*/}
+                    [[ "$old_file" =~ ^[A-Za-z0-9@._+:-]+\.pkg\.tar\.(zst|xz|gz)$ ]]
+                    rm -f "$old_path"
+                  done
+                fi
+              fi
+
+              cp "$package_file" /work/site/x86_64/
+              repo-add "$database" "/work/site/x86_64/$(basename "$package_file")"
+              ln -sfn pacman-repo.db.tar.gz /work/site/x86_64/pacman-repo.db
+              ln -sfn pacman-repo.files.tar.gz /work/site/x86_64/pacman-repo.files
+              printf "%s\n" "$RELEASE_TAG" > "/work/site/release-tags/$PACKAGE_NAME.txt"
             '
 
       - name: Configure Pages

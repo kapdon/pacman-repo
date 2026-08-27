@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=EasyCLI Proxy API
+Comment=Configure CLIProxyAPI and supported AI agents
+Exec=easycli
+Icon=applications-development
+Terminal=false
+Categories=Development;Utility;
+StartupNotify=true
