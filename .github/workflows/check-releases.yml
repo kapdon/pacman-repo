@@ -2,7 +2,7 @@ name: Check tracked releases
 
 on:
   schedule:
-    - cron: '2-57/5 * * * *'
+    - cron: '10,25,40,55 * * * *'
   workflow_dispatch:
 
 permissions:

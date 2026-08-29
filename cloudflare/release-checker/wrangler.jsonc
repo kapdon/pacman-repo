@@ -1,0 +1,31 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "pacman-release-checker",
+  "main": "src/index.js",
+  "compatibility_date": "2026-08-28",
+  "workers_dev": true,
+  "triggers": {
+    "crons": ["13 * * * *"]
+  },
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "CHECKER",
+        "class_name": "ReleaseChecker"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["ReleaseChecker"]
+    }
+  ],
+  "vars": {
+    "CHECK_INTERVAL_SECONDS": "300",
+    "GITHUB_OWNER": "kapdon",
+    "GITHUB_REPO": "pacman-repo",
+    "GITHUB_REF": "main",
+    "GITHUB_WORKFLOW": "publish.yml"
+  }
+}
